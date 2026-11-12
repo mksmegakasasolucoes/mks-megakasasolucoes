@@ -203,6 +203,30 @@ footer small { color:#c7d5f1; }
 .product p{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .product-bottom{flex-wrap:wrap}
 .price{white-space:nowrap}
+
+/* Efeito flutuante nos cards */
+.product{position:relative;transition:transform .25s ease,box-shadow .25s ease,border-color .25s ease}
+.product:hover,.product:focus-within{transform:translateY(-8px) scale(1.025);box-shadow:0 24px 44px #0b2a6a38,0 8px 16px #0b2a6a22;border-color:var(--site-primary);z-index:2}
+.product-visual img{transition:transform .4s ease}
+.product:hover .product-visual img{transform:scale(1.07)}
+@media (hover:none){.product:hover{transform:none;box-shadow:0 5px 18px #112d5a0a}.product:active{transform:translateY(-4px) scale(1.015);box-shadow:0 16px 30px #0b2a6a33}}
+@media (prefers-reduced-motion:reduce){.product,.product:hover,.product:focus-within{transform:none;transition:none}.product:hover .product-visual img{transform:none}}
+/* Bolinha de quantidade no botão Adicionar */
+.add{position:relative}
+.add-badge{position:absolute;top:-10px;right:-8px;min-width:21px;height:21px;padding:0 5px;border-radius:999px;background:#fff;color:var(--site-secondary);border:2px solid var(--site-secondary);font-size:11px;font-weight:950;line-height:1;display:grid;place-items:center;box-shadow:0 2px 6px #0004;animation:badgePop .35s ease}
+@keyframes badgePop{0%{transform:scale(.3)}70%{transform:scale(1.3)}100%{transform:scale(1)}}
+/* Carrinho com miniatura e subtotal */
+.cart-line{align-items:center}
+.cart-thumb{width:56px;height:56px;border-radius:10px;overflow:hidden;flex:none;display:grid;place-items:center;background:light-dark(#edf2fc,#1c2c47);font-size:26px}
+.cart-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.cart-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.cart-info strong{overflow-wrap:anywhere;line-height:1.25}
+.cart-info small{color:#78859a}
+.cart-sub{font-weight:900;color:light-dark(#173b85,#dce8ff);font-size:15px}
+.cart-line .qty{flex:none}
+.cart-total{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:4px;padding:14px 0 4px;font-size:17px}
+.cart-total b{color:light-dark(#173b85,#dce8ff)}
+.cart-total small{flex-basis:100%;color:#78859a;font-size:12px}
 </style>
 </head>
 <body>
@@ -455,6 +479,16 @@ function renderProducts() {
     bottom.append(price,add); body.append(bottom); article.append(visual,body); frag.append(article);
   });
   grid.replaceChildren(frag);
+  updateBadges();
+}
+function updateBadges(){
+  document.querySelectorAll("#productGrid .add[data-add]").forEach(btn=>{
+    const n=cart[btn.dataset.add]||0; let b=btn.querySelector(".add-badge");
+    if(!n){ if(b) b.remove(); btn.removeAttribute("title"); return; }
+    if(!b){ b=document.createElement("span"); b.className="add-badge"; b.setAttribute("aria-hidden","true"); btn.append(b); }
+    if(b.textContent!==String(n)){ b.textContent=n; b.style.animation="none"; void b.offsetWidth; b.style.animation=""; }
+    btn.title="Já no pedido: "+n;
+  });
 }
 function cleanCart() {
   for(const key of Object.keys(cart)) {
@@ -480,16 +514,29 @@ function renderCart() {
   const items=$("cartItems"), frag=document.createDocumentFragment();
   const entries=products.filter(p=>cart[p.id]);
   if(!entries.length) frag.append(make("p","cart-empty","Seu pedido está vazio. Adicione produtos do catálogo para começar."));
+  let total=0, unpriced=0;
   entries.forEach(p=>{
-    const line=make("div","cart-line"), info=make("div"), strong=make("strong","",p.name);
-    info.append(strong,document.createElement("br"),make("small","",p.cat));
-    const qty=make("div","qty"), dec=make("button","","−"), num=make("b","",cart[p.id]), inc=make("button","","+");
+    const q=cart[p.id], unit=Number(p.price)>0?Number(p.price):0;
+    if(unit>0) total+=unit*q; else unpriced++;
+    const line=make("div","cart-line"), thumb=make("div","cart-thumb"), info=make("div","cart-info");
+    const image=safeImageUrl(p.image);
+    if(image){const img=make("img"); img.src=image; img.alt=""; img.loading="lazy"; thumb.append(img);} else thumb.textContent=p.icon||"📦";
+    thumb.setAttribute("aria-hidden","true");
+    info.append(make("strong","",p.name), make("small","",unit>0?q+" × "+money(unit):"Preço a consultar"));
+    if(unit>0) info.append(make("span","cart-sub",money(unit*q)));
+    const qty=make("div","qty"), dec=make("button","","−"), num=make("b","",q), inc=make("button","","+");
     dec.type=inc.type="button"; dec.dataset.dec=inc.dataset.inc=String(p.id);
     dec.setAttribute("aria-label","Diminuir "+p.name); inc.setAttribute("aria-label","Aumentar "+p.name);
-    if(Number.isInteger(p.stock)&&cart[p.id]>=p.stock) inc.disabled=true;
-    qty.append(dec,num,inc); line.append(info,qty); frag.append(line);
+    if(Number.isInteger(p.stock)&&q>=p.stock) inc.disabled=true;
+    qty.append(dec,num,inc); line.append(thumb,info,qty); frag.append(line);
   });
+  if(entries.length){
+    const t=make("div","cart-total"); t.append(make("span","","Total estimado"), make("b","",total>0?money(total):"A consultar"));
+    if(unpriced&&total>0) t.append(make("small","","+ "+unpriced+(unpriced>1?" itens a consultar":" item a consultar")));
+    frag.append(t);
+  }
   items.replaceChildren(frag);
+  updateBadges();
 }
 function persistProducts(previousProducts) {
   const previousConfig={...adminConfig,products:(adminConfig.products||[]).map(p=>({...p}))};
@@ -604,8 +651,9 @@ $("cartPanel").addEventListener("click",e=>{if(e.target.id==="cartPanel")closeDi
 $("checkout").addEventListener("click",()=>{
   const entries=products.filter(p=>cart[p.id]);
   if(!entries.length){alert("Adicione pelo menos um produto ao pedido.");return;}
-  const lines=entries.map(p=>`• ${p.name} — quantidade: ${cart[p.id]}${Number(p.price)>0?` — preço cadastrado: ${money(p.price)}`:" — consultar preço"}`);
-  const msg="Olá! Vim pelo site da MKS Megakasa Soluções e gostaria de consultar este pedido:\n\n"+lines.join("\n")+"\n\nPode me informar os preços e a disponibilidade?";
+  const lines=entries.map(p=>`• ${p.name} — quantidade: ${cart[p.id]}${Number(p.price)>0?` — unitário: ${money(p.price)} — subtotal: ${money(Number(p.price)*cart[p.id])}`:" — consultar preço"}`);
+  const totalEst=entries.reduce((s,p)=>s+(Number(p.price)>0?Number(p.price)*cart[p.id]:0),0);
+  const msg="Olá! Vim pelo site da MKS Megakasa Soluções e gostaria de consultar este pedido:\n\n"+lines.join("\n")+(totalEst>0?"\n\nTotal estimado: "+money(totalEst):"")+"\n\nPode me informar os preços e a disponibilidade?";
   const phone=validatePhone(window.MKS_PHONE||WHATSAPP);
   if(!phone){alert("O WhatsApp da loja está inválido. Entre em contato por telefone.");return;}
   window.open("https://wa.me/"+phone+"?text="+encodeURIComponent(msg),"_blank","noopener,noreferrer");
