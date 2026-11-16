@@ -365,17 +365,32 @@ function applyStoreConfig(){
   }
 }
 async function loadRemote(){
+  // O catálogo e as configurações são independentes: falha nas configurações
+  // não pode impedir a exibição dos produtos.
+  let catalogLoaded=false;
   try{
-    const [rows,sets]=await Promise.all([sbRest("GET","products?select=*&order=id.asc"),sbRest("GET","store_settings?select=data&id=eq.1")]);
-    remoteOk=true;
+    const rows=await sbRest("GET","products?select=*&order=id.asc");
+    if(!Array.isArray(rows)) throw new Error("Resposta inválida do catálogo.");
     products.splice(0,products.length,...rows.map(fromRow));
+    remoteOk=true; catalogLoaded=true;
+  }catch(e){
+    remoteOk=false;
+    console.warn("Não foi possível carregar o catálogo remoto; mantendo os dados locais.",e);
+  }
+  try{
+    const sets=await sbRest("GET","store_settings?select=data&id=eq.1");
     if(sets&&sets[0]&&sets[0].data&&typeof sets[0].data==="object"){
-      const d=sets[0].data; delete d.pin; delete d.products;
+      const d={...sets[0].data}; delete d.pin; delete d.products;
       adminConfig={...adminConfig,...d}; applyStoreConfig();
     }
-  }catch(e){console.warn("Catálogo online indisponível; usando dados locais.",e);}
+  }catch(e){
+    console.warn("Configurações da loja indisponíveis; mantendo as configurações atuais.",e);
+  }
   renderCats(); renderProducts(); renderCart();
   if($("adminOverlay").classList.contains("open")) renderAdminProducts();
+  if(!catalogLoaded && !products.length){
+    grid.replaceChildren(make("div","empty","Não foi possível carregar o catálogo agora. Verifique sua conexão e tente novamente.") );
+  }
 }
 function refreshAdminButton(){
   const show=location.hash==="#admin"||!!readSession();
@@ -832,13 +847,16 @@ $("saveStore").addEventListener("click",async()=>{
   const primary=$("adminPrimary").value,secondary=$("adminSecondary").value;
   if(!/^#[0-9a-f]{6}$/i.test(primary)||!/^#[0-9a-f]{6}$/i.test(secondary)){setStatus("storeStatus","Informe cores válidas.");return;}
   const displayPhone=$("adminDisplayPhone").value.trim().slice(0,40);
-  adminConfig={...adminConfig,phone,displayPhone,primary,secondary,title:$("adminHeroTitle").value.trim().slice(0,160),description:$("adminHeroText").value.trim().slice(0,1000),aboutText:$("adminAboutText").value.trim().slice(0,2000),products:products.map(p=>({...p}))};
-  try{ const {pin,products:_p,...data}=adminConfig; await sbRest("PATCH","store_settings?id=eq.1",{data}); }catch(err){setStatus("storeStatus","Erro ao salvar: "+err.message);return;}
-  document.documentElement.style.setProperty("--site-primary",primary);document.documentElement.style.setProperty("--site-secondary",secondary);
-  if(adminConfig.title)$("heroTitle").textContent=adminConfig.title;if(adminConfig.description)$("heroDescription").textContent=adminConfig.description;if(adminConfig.aboutText)$("aboutDescription").textContent=adminConfig.aboutText;
-  document.querySelector(".topline .container span:last-child").textContent="📞 "+displayPhone;
-  const footerPhone=document.querySelector("footer .footer-inner div:nth-child(2) small");if(footerPhone)footerPhone.textContent=displayPhone;
-  window.MKS_PHONE=phone;setStatus("storeStatus","Informações da loja atualizadas!");
+  const candidate={...adminConfig,phone,displayPhone,primary,secondary,title:$("adminHeroTitle").value.trim().slice(0,160),description:$("adminHeroText").value.trim().slice(0,1000),aboutText:$("adminAboutText").value.trim().slice(0,2000)};
+  const {pin,products:_p,...data}=candidate;
+  const btn=$("saveStore"); btn.disabled=true; setStatus("storeStatus","Salvando configurações…");
+  try{
+    await sbRest("PATCH","store_settings?id=eq.1",{data});
+    adminConfig=candidate;
+    applyStoreConfig();
+    setStatus("storeStatus","Informações da loja atualizadas!");
+  }catch(err){setStatus("storeStatus","Erro ao salvar: "+err.message+". As configurações anteriores foram mantidas.");}
+  finally{btn.disabled=false;}
 });
 $("exportAdmin").addEventListener("click",()=>{
   try {
@@ -875,7 +893,7 @@ loadAdminConfig();
 $("search").value=""; active="Todos";
 renderCats();renderProducts();renderCart();
 refreshAdminButton();
-grid.replaceChildren(make("div","empty","Carregando produtos…"));
+if(!products.length) grid.replaceChildren(make("div","empty","Carregando produtos…"));
 loadRemote();
 </script>
 </body>
